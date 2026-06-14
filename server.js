@@ -33,6 +33,39 @@ function saveUsers() {
 }
 
 // ============================================
+// GLOBAL DATA (NO USER ID NEEDED)
+// ============================================
+let globalBalance = 0;
+let globalEquity = 0;
+let globalCurrency = 'USD';
+let globalPositions = [];
+let globalLastUpdate = null;
+
+// EA sends data here (no user ID required)
+app.post('/api/ea/update', (req, res) => {
+  if (req.body.balance !== undefined) globalBalance = req.body.balance;
+  if (req.body.equity !== undefined) globalEquity = req.body.equity;
+  if (req.body.currency !== undefined) globalCurrency = req.body.currency;
+  if (req.body.positions !== undefined) globalPositions = req.body.positions;
+  globalLastUpdate = new Date();
+  
+  console.log(`💰 EA Updated: ${globalCurrency} ${globalBalance}`);
+  res.json({ success: true });
+});
+
+// App reads from here (no user ID required)
+app.get('/api/global/account', (req, res) => {
+  res.json({
+    success: true,
+    balance: globalBalance,
+    equity: globalEquity,
+    currency: globalCurrency,
+    positions: globalPositions,
+    lastUpdate: globalLastUpdate
+  });
+});
+
+// ============================================
 // ROOT ROUTE
 // ============================================
 app.get('/', (req, res) => {
@@ -40,13 +73,9 @@ app.get('/', (req, res) => {
     status: 'online', 
     message: 'TradeXbot Server is running!',
     endpoints: [
-      '/api/status', 
-      '/api/connect', 
-      '/api/account/:userId', 
-      '/api/sync/:userId',
-      '/api/ea/:userId/start',
-      '/api/ea/:userId/stop',
-      '/api/ea/:userId/status'
+      '/api/status',
+      '/api/global/account (NO USER ID NEEDED)',
+      '/api/ea/update (EA sends here)'
     ]
   });
 });
@@ -58,17 +87,18 @@ app.get('/api/status', (req, res) => {
   res.json({ 
     running: true, 
     message: 'TradeXbot Server is running',
-    activeUsers: Object.keys(users).length 
+    activeUsers: Object.keys(users).length,
+    globalBalance: globalBalance,
+    globalCurrency: globalCurrency
   });
 });
 
 // ============================================
-// USER REGISTRATION
+// USER REGISTRATION (Keep for backward compatibility)
 // ============================================
 app.post('/api/connect', (req, res) => {
   const { userId, mt5Login, mt5Password, mt5Server } = req.body;
   
-  // Check if user already exists
   if (users[userId]) {
     console.log(`♻️ User already exists: ${userId}`);
     users[userId].mt5Login = mt5Login;
@@ -95,13 +125,12 @@ app.post('/api/connect', (req, res) => {
 });
 
 // ============================================
-// SYNC BALANCE (EA to Server)
+// SYNC BALANCE (EA to Server) - Keep for backward compatibility
 // ============================================
 app.post('/api/sync/:userId', (req, res) => {
   let user = users[req.params.userId];
   const userId = req.params.userId;
   
-  // Auto-create user if doesn't exist (for EA first connection)
   if (!user) {
     console.log(`🆕 Auto-creating user from EA: ${userId}`);
     user = {
@@ -120,7 +149,6 @@ app.post('/api/sync/:userId', (req, res) => {
     users[userId] = user;
   }
   
-  // Update balance
   if (req.body.balance !== undefined) user.balance = req.body.balance;
   if (req.body.equity !== undefined) user.equity = req.body.equity;
   if (req.body.currency !== undefined) user.currency = req.body.currency;
@@ -132,7 +160,7 @@ app.post('/api/sync/:userId', (req, res) => {
 });
 
 // ============================================
-// GET USER ACCOUNT DATA (App reads from here)
+// GET USER ACCOUNT DATA - Keep for backward compatibility
 // ============================================
 app.get('/api/account/:userId', (req, res) => {
   const user = users[req.params.userId];
@@ -175,7 +203,6 @@ app.post('/api/trade/:userId', (req, res) => {
       ...req.body,
       receivedAt: new Date()
     });
-    // Keep only last 100 trades
     if (user.trades.length > 100) user.trades = user.trades.slice(0, 100);
     console.log(`📊 New trade for ${req.params.userId}: ${req.body.type || 'unknown'}`);
     saveUsers();
@@ -239,7 +266,6 @@ app.post('/api/ea/:userId/status', (req, res) => {
     saveUsers();
     res.json({ success: true });
   } else {
-    // Auto-create user
     users[req.params.userId] = {
       mt5Login: 'EA_User',
       mt5Server: 'EA_Server',
@@ -292,6 +318,7 @@ app.listen(PORT, () => {
 ╔══════════════════════════════════════════════════╗
 ║     🚀 TradeXbot Server Running                  ║
 ║     Port: ${PORT}                                  ║
+║     Global Balance: ${globalBalance} ${globalCurrency}   ║
 ║     Users in DB: ${Object.keys(users).length}      ║
 ║     Data persistence: ENABLED ✅                  ║
 ╚══════════════════════════════════════════════════╝
