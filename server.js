@@ -162,3 +162,49 @@ function simulateTrading(userId) {
 
 // Start simulated trading when EA starts (temporary for demo)
 // In real app, this would be your actual EA
+
+
+
+
+// Get trading signal for EA
+app.get('/api/signal/:userId', (req, res) => {
+  const user = users[req.params.userId];
+  // Your trading logic here
+  const signal = Math.random() > 0.5 ? "BUY" : "SELL";
+  res.json({ signal: signal, confidence: 75 });
+});
+
+// Receive trade notifications from EA
+app.post('/api/trade/:userId', (req, res) => {
+  const user = users[req.params.userId];
+  if (user) {
+    user.lastTrade = req.body;
+    console.log(`📊 New trade for ${req.params.userId}:`, req.body);
+  }
+  res.json({ success: true });
+});
+
+
+
+
+
+// Add this to your server.js
+app.post('/api/ea/:userId/status', (req, res) => {
+  console.log(`📡 Status update from ${req.params.userId}:`, req.body);
+  res.json({ success: true });
+});
+
+app.post('/api/update/:userId', (req, res) => {
+  console.log(`💰 Balance update from ${req.params.userId}:`, req.body);
+  const user = users[req.params.userId];
+  if (user) {
+    user.balance = req.body.balance;
+    user.equity = req.body.equity;
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/trade/:userId', (req, res) => {
+  console.log(`📊 Trade from ${req.params.userId}:`, req.body);
+  res.json({ success: true });
+});
