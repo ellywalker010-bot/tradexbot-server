@@ -4,6 +4,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Add this new route at the top of your routes, after app.use(...)
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'online', 
+    message: 'TradeXbot Server is running!',
+    endpoints: ['/api/status', '/api/connect', '/api/account/:userId']
+  });
+});
+
 // Store each user's data separately
 const users = {};
 
