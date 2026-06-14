@@ -87,3 +87,78 @@ app.listen(PORT, () => {
 ╚══════════════════════════════════════════════════╝
   `);
 });
+
+
+
+// Add after your existing code
+
+// Store EA instances and trading status
+const userEAs = {};
+
+// Start EA for a user
+app.post('/api/ea/:userId/start', (req, res) => {
+  const user = users[req.params.userId];
+  if (!user) {
+    return res.json({ success: false, error: 'User not found' });
+  }
+  
+  // Mark EA as running for this user
+  user.eaRunning = true;
+  userEAs[req.params.userId] = { status: 'running', startTime: new Date() };
+  
+  console.log(`🤖 EA STARTED for user ${req.params.userId} (MT5: ${user.mt5Login})`);
+  
+  // Here your actual EA would start trading on user's account
+  // For now, we'll simulate trading
+  
+  res.json({ success: true, message: 'EA started', eaRunning: true });
+});
+
+// Stop EA for a user
+app.post('/api/ea/:userId/stop', (req, res) => {
+  const user = users[req.params.userId];
+  if (!user) {
+    return res.json({ success: false, error: 'User not found' });
+  }
+  
+  user.eaRunning = false;
+  delete userEAs[req.params.userId];
+  
+  console.log(`🛑 EA STOPPED for user ${req.params.userId}`);
+  
+  res.json({ success: true, message: 'EA stopped', eaRunning: false });
+});
+
+// Get EA status
+app.get('/api/ea/:userId/status', (req, res) => {
+  const user = users[req.params.userId];
+  if (!user) {
+    return res.json({ success: false, error: 'User not found' });
+  }
+  
+  res.json({
+    success: true,
+    eaRunning: user.eaRunning || false,
+    lastUpdate: user.lastTradeTime || null
+  });
+});
+
+// Simulate trading (would be your actual EA logic)
+function simulateTrading(userId) {
+  const user = users[userId];
+  if (!user || !user.eaRunning) return;
+  
+  // Simulate a trade (in real app, this would connect to MT5)
+  const profit = (Math.random() * 50 - 25).toFixed(2);
+  user.balance += parseFloat(profit);
+  user.equity = user.balance;
+  user.lastTradeTime = new Date();
+  
+  console.log(`💰 User ${userId} trade: ${profit > 0 ? '+' : ''}$${profit}`);
+  
+  // Simulate next trade in 30-60 seconds
+  setTimeout(() => simulateTrading(userId), Math.random() * 30000 + 30000);
+}
+
+// Start simulated trading when EA starts (temporary for demo)
+// In real app, this would be your actual EA
