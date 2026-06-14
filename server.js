@@ -1,22 +1,59 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Store users data
-const users = {};
+// ============================================
+// PERSISTENT STORAGE - Save users to file
+// ============================================
+const USERS_FILE = 'users.json';
 
-// Root route
+// Load users from file on startup
+let users = {};
+if (fs.existsSync(USERS_FILE)) {
+  try {
+    const data = fs.readFileSync(USERS_FILE, 'utf8');
+    users = JSON.parse(data);
+    console.log(`✅ Loaded ${Object.keys(users).length} users from file`);
+  } catch(e) { 
+    console.log('Error loading users, starting fresh');
+  }
+}
+
+// Save users to file
+function saveUsers() {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    console.log(`💾 Saved ${Object.keys(users).length} users to file`);
+  } catch(e) {
+    console.log('Error saving users:', e.message);
+  }
+}
+
+// ============================================
+// ROOT ROUTE
+// ============================================
 app.get('/', (req, res) => {
   res.json({ 
     status: 'online', 
     message: 'TradeXbot Server is running!',
-    endpoints: ['/api/status', '/api/connect', '/api/account/:userId', '/api/sync/:userId']
+    endpoints: [
+      '/api/status', 
+      '/api/connect', 
+      '/api/account/:userId', 
+      '/api/sync/:userId',
+      '/api/ea/:userId/start',
+      '/api/ea/:userId/stop',
+      '/api/ea/:userId/status'
+    ]
   });
 });
 
-// API Status endpoint
+// ============================================
+// STATUS ENDPOINT
+// ============================================
 app.get('/api/status', (req, res) => {
   res.json({ 
     running: true, 
@@ -25,47 +62,83 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// User registration/connection
+// ============================================
+// USER REGISTRATION
+// ============================================
 app.post('/api/connect', (req, res) => {
   const { userId, mt5Login, mt5Password, mt5Server } = req.body;
   
-  console.log(`📱 Registering user: ${userId}`);
+  // Check if user already exists
+  if (users[userId]) {
+    console.log(`♻️ User already exists: ${userId}`);
+    users[userId].mt5Login = mt5Login;
+    users[userId].mt5Server = mt5Server;
+    users[userId].lastActive = new Date();
+  } else {
+    console.log(`📱 Registering new user: ${userId}`);
+    users[userId] = {
+      mt5Login,
+      mt5Server,
+      balance: 0,
+      equity: 0,
+      currency: 'USD',
+      positions: [],
+      trades: [],
+      eaRunning: false,
+      connectedAt: new Date(),
+      lastActive: new Date()
+    };
+  }
   
-  users[userId] = {
-    mt5Login,
-    mt5Server,
-    balance: 0,
-    equity: 0,
-    currency: 'USD',
-    positions: [],
-    connectedAt: new Date()
-  };
-  
+  saveUsers();
   res.json({ success: true, userId, message: 'User registered successfully' });
 });
 
-// Sync user balance (called after registration)
+// ============================================
+// SYNC BALANCE (EA to Server)
+// ============================================
 app.post('/api/sync/:userId', (req, res) => {
-  const user = users[req.params.userId];
+  let user = users[req.params.userId];
+  const userId = req.params.userId;
+  
+  // Auto-create user if doesn't exist (for EA first connection)
   if (!user) {
-    console.log(`❌ User not found: ${req.params.userId}`);
-    return res.json({ success: false, error: 'User not found' });
+    console.log(`🆕 Auto-creating user from EA: ${userId}`);
+    user = {
+      mt5Login: 'EA_User',
+      mt5Server: 'EA_Server',
+      balance: req.body.balance || 0,
+      equity: req.body.equity || 0,
+      currency: req.body.currency || 'USD',
+      positions: [],
+      trades: [],
+      eaRunning: true,
+      connectedAt: new Date(),
+      lastActive: new Date(),
+      source: 'EA'
+    };
+    users[userId] = user;
   }
   
-  user.balance = req.body.balance;
-  user.equity = req.body.equity;
-  user.currency = req.body.currency;
+  // Update balance
+  if (req.body.balance !== undefined) user.balance = req.body.balance;
+  if (req.body.equity !== undefined) user.equity = req.body.equity;
+  if (req.body.currency !== undefined) user.currency = req.body.currency;
+  user.lastActive = new Date();
   
-  console.log(`💰 User ${req.params.userId} balance updated to ${user.currency} ${user.balance}`);
+  console.log(`💰 Balance updated for ${userId}: ${user.currency} ${user.balance}`);
+  saveUsers();
   res.json({ success: true, balance: user.balance });
 });
 
-// Get user account data
+// ============================================
+// GET USER ACCOUNT DATA (App reads from here)
+// ============================================
 app.get('/api/account/:userId', (req, res) => {
   const user = users[req.params.userId];
   if (!user) {
     console.log(`❌ User not found: ${req.params.userId}`);
-    return res.json({ success: false, error: 'User not found' });
+    return res.json({ success: false, error: 'User not found', balance: 0, equity: 0, currency: 'USD' });
   }
   
   res.json({
@@ -73,48 +146,62 @@ app.get('/api/account/:userId', (req, res) => {
     balance: user.balance,
     equity: user.equity,
     currency: user.currency,
-    positions: user.positions
+    positions: user.positions || [],
+    trades: user.trades || []
   });
 });
 
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`
-╔══════════════════════════════════════════════════╗
-║     TradeXbot Server Running                     ║
-║     Port: ${PORT}                                  ║
-║     Users can now connect                        ║
-╚══════════════════════════════════════════════════╝
-  `);
+// ============================================
+// UPDATE POSITIONS (from EA)
+// ============================================
+app.post('/api/positions/:userId', (req, res) => {
+  const user = users[req.params.userId];
+  if (user) {
+    user.positions = req.body;
+    console.log(`📊 Positions updated for ${req.params.userId}: ${Array.isArray(req.body) ? req.body.length : 0} positions`);
+    saveUsers();
+  }
+  res.json({ success: true });
 });
 
+// ============================================
+// RECEIVE TRADE NOTIFICATIONS
+// ============================================
+app.post('/api/trade/:userId', (req, res) => {
+  const user = users[req.params.userId];
+  if (user) {
+    if (!user.trades) user.trades = [];
+    user.trades.unshift({
+      ...req.body,
+      receivedAt: new Date()
+    });
+    // Keep only last 100 trades
+    if (user.trades.length > 100) user.trades = user.trades.slice(0, 100);
+    console.log(`📊 New trade for ${req.params.userId}: ${req.body.type || 'unknown'}`);
+    saveUsers();
+  }
+  res.json({ success: true });
+});
 
-
-// Add after your existing code
-
-// Store EA instances and trading status
+// ============================================
+// EA CONTROL (Start/Stop)
+// ============================================
 const userEAs = {};
 
-// Start EA for a user
 app.post('/api/ea/:userId/start', (req, res) => {
   const user = users[req.params.userId];
   if (!user) {
     return res.json({ success: false, error: 'User not found' });
   }
   
-  // Mark EA as running for this user
   user.eaRunning = true;
   userEAs[req.params.userId] = { status: 'running', startTime: new Date() };
   
-  console.log(`🤖 EA STARTED for user ${req.params.userId} (MT5: ${user.mt5Login})`);
-  
-  // Here your actual EA would start trading on user's account
-  // For now, we'll simulate trading
-  
+  console.log(`🤖 EA STARTED for user ${req.params.userId}`);
+  saveUsers();
   res.json({ success: true, message: 'EA started', eaRunning: true });
 });
 
-// Stop EA for a user
 app.post('/api/ea/:userId/stop', (req, res) => {
   const user = users[req.params.userId];
   if (!user) {
@@ -125,80 +212,34 @@ app.post('/api/ea/:userId/stop', (req, res) => {
   delete userEAs[req.params.userId];
   
   console.log(`🛑 EA STOPPED for user ${req.params.userId}`);
-  
+  saveUsers();
   res.json({ success: true, message: 'EA stopped', eaRunning: false });
 });
 
-// Get EA status
 app.get('/api/ea/:userId/status', (req, res) => {
   const user = users[req.params.userId];
   if (!user) {
-    return res.json({ success: false, error: 'User not found' });
+    return res.json({ success: false, eaRunning: false, error: 'User not found' });
   }
   
   res.json({
     success: true,
     eaRunning: user.eaRunning || false,
-    lastUpdate: user.lastTradeTime || null
+    lastUpdate: user.lastActive || null
   });
 });
 
-// Simulate trading (would be your actual EA logic)
-function simulateTrading(userId) {
-  const user = users[userId];
-  if (!user || !user.eaRunning) return;
-  
-  // Simulate a trade (in real app, this would connect to MT5)
-  const profit = (Math.random() * 50 - 25).toFixed(2);
-  user.balance += parseFloat(profit);
-  user.equity = user.balance;
-  user.lastTradeTime = new Date();
-  
-  console.log(`💰 User ${userId} trade: ${profit > 0 ? '+' : ''}$${profit}`);
-  
-  // Simulate next trade in 30-60 seconds
-  setTimeout(() => simulateTrading(userId), Math.random() * 30000 + 30000);
-}
-
-// Start simulated trading when EA starts (temporary for demo)
-// In real app, this would be your actual EA
-
-
-
-
-// Get trading signal for EA
-app.get('/api/signal/:userId', (req, res) => {
-  const user = users[req.params.userId];
-  // Your trading logic here
-  const signal = Math.random() > 0.5 ? "BUY" : "SELL";
-  res.json({ signal: signal, confidence: 75 });
-});
-
-// Receive trade notifications from EA
-app.post('/api/trade/:userId', (req, res) => {
-  const user = users[req.params.userId];
-  if (user) {
-    user.lastTrade = req.body;
-    console.log(`📊 New trade for ${req.params.userId}:`, req.body);
-  }
-  res.json({ success: true });
-});
-
-
-
-
-
-// Add this to your server.js
-// Add to server.js
+// EA Status Update (from EA)
 app.post('/api/ea/:userId/status', (req, res) => {
   const user = users[req.params.userId];
   if (user) {
-    user.lastUpdate = new Date();
-    user.eaRunning = req.body.running || false;
-    console.log(`🤖 EA status update from ${req.params.userId}`);
+    user.lastActive = new Date();
+    if (req.body.running !== undefined) user.eaRunning = req.body.running;
+    console.log(`🤖 EA status update from ${req.params.userId}, running: ${user.eaRunning}`);
+    saveUsers();
     res.json({ success: true });
   } else {
-    // Auto-register the user if EA sends data
+    // Auto-create user
     users[req.params.userId] = {
       mt5Login: 'EA_User',
       mt5Server: 'EA_Server',
@@ -206,66 +247,53 @@ app.post('/api/ea/:userId/status', (req, res) => {
       equity: req.body.equity || 0,
       currency: 'USD',
       positions: [],
+      trades: [],
+      eaRunning: req.body.running || true,
       connectedAt: new Date(),
-      eaRunning: true
+      lastActive: new Date(),
+      source: 'EA'
     };
+    saveUsers();
     console.log(`✅ Auto-registered user ${req.params.userId} from EA`);
     res.json({ success: true });
   }
 });
 
+// ============================================
+// SIGNAL GENERATION (for EA)
+// ============================================
+app.get('/api/signal/:userId', (req, res) => {
+  const signal = Math.random() > 0.5 ? "BUY" : "SELL";
+  const confidence = Math.floor(Math.random() * 30) + 60;
+  res.json({ signal: signal, confidence: confidence });
+});
+
+// ============================================
+// UPDATE USER DATA (from App)
+// ============================================
 app.post('/api/update/:userId', (req, res) => {
-  console.log(`💰 Balance update from ${req.params.userId}:`, req.body);
   const user = users[req.params.userId];
   if (user) {
-    user.balance = req.body.balance;
-    user.equity = req.body.equity;
+    if (req.body.balance !== undefined) user.balance = req.body.balance;
+    if (req.body.equity !== undefined) user.equity = req.body.equity;
+    if (req.body.currency !== undefined) user.currency = req.body.currency;
+    console.log(`📝 User ${req.params.userId} updated: balance ${user.currency} ${user.balance}`);
+    saveUsers();
   }
   res.json({ success: true });
 });
 
-app.post('/api/trade/:userId', (req, res) => {
-  console.log(`📊 Trade from ${req.params.userId}:`, req.body);
-  res.json({ success: true });
-});
-
-
-
-// Add to server.js
-
-// Receive positions from EA
-app.post('/api/positions/:userId', (req, res) => {
-  const user = users[req.params.userId];
-  if (user) {
-    user.positions = req.body;
-    console.log(`📊 Positions updated for ${req.params.userId}: ${req.body.length} positions`);
-  }
-  res.json({ success: true });
-});
-
-// Receive balance from EA
-app.post('/api/sync/:userId', (req, res) => {
-  let user = users[req.params.userId];
-  
-  // Auto-create user if doesn't exist
-  if (!user) {
-    user = {
-      mt5Login: 'EA_User',
-      mt5Server: 'EA_Server',
-      balance: req.body.balance,
-      equity: req.body.equity,
-      currency: req.body.currency,
-      positions: [],
-      connectedAt: new Date()
-    };
-    users[req.params.userId] = user;
-    console.log(`✅ Auto-created user ${req.params.userId} from EA`);
-  } else {
-    user.balance = req.body.balance;
-    user.equity = req.body.equity;
-    user.currency = req.body.currency;
-  }
-  
-  console.log(`💰 Balance updated for ${req.params.userId}: ${user.currency} ${user.balance}`);
-  res.json({ success: true });
+// ============================================
+// START SERVER
+// ============================================
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`
+╔══════════════════════════════════════════════════╗
+║     🚀 TradeXbot Server Running                  ║
+║     Port: ${PORT}                                  ║
+║     Users in DB: ${Object.keys(users).length}      ║
+║     Data persistence: ENABLED ✅                  ║
+╚══════════════════════════════════════════════════╝
+  `);
 });
