@@ -228,3 +228,44 @@ app.post('/api/trade/:userId', (req, res) => {
   console.log(`📊 Trade from ${req.params.userId}:`, req.body);
   res.json({ success: true });
 });
+
+
+
+// Add to server.js
+
+// Receive positions from EA
+app.post('/api/positions/:userId', (req, res) => {
+  const user = users[req.params.userId];
+  if (user) {
+    user.positions = req.body;
+    console.log(`📊 Positions updated for ${req.params.userId}: ${req.body.length} positions`);
+  }
+  res.json({ success: true });
+});
+
+// Receive balance from EA
+app.post('/api/sync/:userId', (req, res) => {
+  let user = users[req.params.userId];
+  
+  // Auto-create user if doesn't exist
+  if (!user) {
+    user = {
+      mt5Login: 'EA_User',
+      mt5Server: 'EA_Server',
+      balance: req.body.balance,
+      equity: req.body.equity,
+      currency: req.body.currency,
+      positions: [],
+      connectedAt: new Date()
+    };
+    users[req.params.userId] = user;
+    console.log(`✅ Auto-created user ${req.params.userId} from EA`);
+  } else {
+    user.balance = req.body.balance;
+    user.equity = req.body.equity;
+    user.currency = req.body.currency;
+  }
+  
+  console.log(`💰 Balance updated for ${req.params.userId}: ${user.currency} ${user.balance}`);
+  res.json({ success: true });
+});
