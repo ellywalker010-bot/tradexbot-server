@@ -4,7 +4,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Add this new route at the top of your routes, after app.use(...)
+// Store users data
+const users = {};
+
+// Root route (working)
 app.get('/', (req, res) => {
   res.json({ 
     status: 'online', 
@@ -13,14 +16,18 @@ app.get('/', (req, res) => {
   });
 });
 
-// Store each user's data separately
-const users = {};
+// API Status endpoint (MISSING from your deployment)
+app.get('/api/status', (req, res) => {
+  res.json({ 
+    running: true, 
+    message: 'TradeXbot Server is running',
+    activeUsers: Object.keys(users).length 
+  });
+});
 
-// User connects their MT5 account
+// User connection endpoint
 app.post('/api/connect', (req, res) => {
   const { userId, mt5Login, mt5Password, mt5Server } = req.body;
-  
-  // Create unique storage for this user
   users[userId] = {
     mt5Login,
     mt5Server,
@@ -28,67 +35,19 @@ app.post('/api/connect', (req, res) => {
     equity: 0,
     currency: 'USD',
     positions: [],
-    trades: [],
     connectedAt: new Date()
   };
-  
-  console.log(`✅ User ${userId} connected (MT5: ${mt5Login})`);
   res.json({ success: true, userId });
 });
 
-// Get user's account data
+// Get user account data
 app.get('/api/account/:userId', (req, res) => {
   const user = users[req.params.userId];
-  if (!user) {
-    return res.json({ success: false, error: 'User not found' });
-  }
-  
-  res.json({
-    success: true,
-    balance: user.balance,
-    equity: user.equity,
-    currency: user.currency,
-    positions: user.positions,
-    trades: user.trades
-  });
+  if (!user) return res.json({ success: false, error: 'User not found' });
+  res.json({ success: true, balance: user.balance, equity: user.equity, currency: user.currency });
 });
 
-// Update user's data (called by the user's app)
-app.post('/api/update/:userId', (req, res) => {
-  const user = users[req.params.userId];
-  if (user) {
-    user.balance = req.body.balance || user.balance;
-    user.equity = req.body.equity || user.equity;
-    user.currency = req.body.currency || user.currency;
-    user.positions = req.body.positions || user.positions;
-    user.trades = req.body.trades || user.trades;
-    console.log(`📊 Updated ${req.params.userId}: Balance ${user.currency} ${user.balance}`);
-    res.json({ success: true });
-  } else {
-    res.json({ success: false });
-  }
-});
-
-// User updates their MT5 data (they send their real balance)
-app.post('/api/sync/:userId', (req, res) => {
-  const user = users[req.params.userId];
-  if (user) {
-    user.balance = req.body.balance;
-    user.equity = req.body.equity;
-    user.currency = req.body.currency;
-    console.log(`💰 User ${req.params.userId} balance updated to ${user.currency} ${user.balance}`);
-    res.json({ success: true, balance: user.balance });
-  } else {
-    res.json({ success: false, error: 'User not found' });
-  }
-});
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`
-╔══════════════════════════════════════════════════╗
-║     TradeXbot Server Running                     ║
-║     Port: ${PORT}                                ║
-║     Users can now connect                        ║
-╚══════════════════════════════════════════════════╝
-  `);
+  console.log(`TradeXbot Server Running on port ${PORT}`);
 });
