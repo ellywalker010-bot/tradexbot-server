@@ -189,9 +189,29 @@ app.post('/api/trade/:userId', (req, res) => {
 
 
 // Add this to your server.js
+// Add to server.js
 app.post('/api/ea/:userId/status', (req, res) => {
-  console.log(`📡 Status update from ${req.params.userId}:`, req.body);
-  res.json({ success: true });
+  const user = users[req.params.userId];
+  if (user) {
+    user.lastUpdate = new Date();
+    user.eaRunning = req.body.running || false;
+    console.log(`🤖 EA status update from ${req.params.userId}`);
+    res.json({ success: true });
+  } else {
+    // Auto-register the user if EA sends data
+    users[req.params.userId] = {
+      mt5Login: 'EA_User',
+      mt5Server: 'EA_Server',
+      balance: req.body.balance || 0,
+      equity: req.body.equity || 0,
+      currency: 'USD',
+      positions: [],
+      connectedAt: new Date(),
+      eaRunning: true
+    };
+    console.log(`✅ Auto-registered user ${req.params.userId} from EA`);
+    res.json({ success: true });
+  }
 });
 
 app.post('/api/update/:userId', (req, res) => {
