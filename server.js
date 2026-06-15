@@ -4,40 +4,37 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Global storage
-let liveAccountData = {
-  balance: 0,
-  equity: 0,
-  currency: 'USD',
-  positions: [],
-  lastUpdate: null
-};
+// Global storage - one place for all data
+let currentBalance = 0;
+let currentCurrency = 'USD';
+let currentEquity = 0;
+let lastUpdate = null;
 
 // EA sends data here
 app.post('/api/ea/update', (req, res) => {
-  console.log('📥 EA Data Received:', req.body);
+  console.log('📥 RAW BODY:', req.body);
+  console.log('📥 Balance from request:', req.body.balance);
   
-  if (req.body.balance !== undefined) {
-    liveAccountData.balance = req.body.balance;
-    liveAccountData.equity = req.body.equity || req.body.balance;
-    liveAccountData.currency = req.body.currency || 'USD';
-    liveAccountData.lastUpdate = new Date();
-    console.log(`💰 UPDATED: ${liveAccountData.currency} ${liveAccountData.balance}`);
+  if (req.body.balance !== undefined && req.body.balance > 0) {
+    currentBalance = req.body.balance;
+    currentEquity = req.body.equity || req.body.balance;
+    currentCurrency = req.body.currency || 'USD';
+    lastUpdate = new Date();
+    console.log(`💰 UPDATED: ${currentCurrency} ${currentBalance}`);
   }
   
-  res.json({ success: true, data: liveAccountData });
+  res.json({ success: true, balance: currentBalance });
 });
 
 // App reads data here
 app.get('/api/live-data', (req, res) => {
-  console.log(`📤 Sending to app: ${liveAccountData.currency} ${liveAccountData.balance}`);
+  console.log(`📤 Sending to app: ${currentCurrency} ${currentBalance}`);
   res.json({
     success: true,
-    balance: liveAccountData.balance,
-    equity: liveAccountData.equity,
-    currency: liveAccountData.currency,
-    positions: liveAccountData.positions,
-    lastUpdate: liveAccountData.lastUpdate
+    balance: currentBalance,
+    equity: currentEquity,
+    currency: currentCurrency,
+    lastUpdate: lastUpdate
   });
 });
 
@@ -45,9 +42,9 @@ app.get('/api/live-data', (req, res) => {
 app.get('/api/status', (req, res) => {
   res.json({ 
     running: true, 
-    balance: liveAccountData.balance,
-    currency: liveAccountData.currency,
-    lastUpdate: liveAccountData.lastUpdate
+    balance: currentBalance,
+    currency: currentCurrency,
+    lastUpdate: lastUpdate
   });
 });
 
