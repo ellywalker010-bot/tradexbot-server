@@ -32,20 +32,19 @@ function saveData() {
 
 // EA sends data here - THIS IS THE CRITICAL ENDPOINT
 app.post('/api/ea/update', (req, res) => {
-  console.log('📥 Received:', req.body);
+  console.log('📥 EA DATA RECEIVED:', req.body);
   
-  // Handle both simple and full JSON
-  const balance = req.body.balance || 0;
-  
-  if (balance > 0) {
-    currentBalance = balance;
-    currentEquity = req.body.equity || balance;
+  if (req.body.balance !== undefined && req.body.balance > 0) {
+    currentBalance = req.body.balance;
+    currentEquity = req.body.equity || req.body.balance;
     currentCurrency = req.body.currency || 'USD';
     saveData();
-    console.log(`💰 Updated: ${currentCurrency} ${currentBalance}`);
+    console.log(`💰✅ UPDATED TO: ${currentCurrency} ${currentBalance}`);
+    res.json({ success: true, balance: currentBalance });
+  } else {
+    console.log('⚠️ Invalid data received');
+    res.json({ success: false, error: 'Invalid data' });
   }
-  
-  res.json({ success: true, balance: currentBalance });
 });
 
 // App reads data here
